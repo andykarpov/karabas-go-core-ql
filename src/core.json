@@ -1,12 +1,12 @@
 {
     "id": "ql",
     "name": "Sinclair QL",
-    "build": "26110801",
+    "build": "26110901",
     "visible": true,
     "type": "osd",
     "order": 18,
     "eeprom_bank": 255,
-    "rtc_mode": 0,
+    "rtc_mode": 1,
     "roms": [
     {"filename": "roms/min198a1.rom", "address": 0}
     ],
