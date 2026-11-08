@@ -18,7 +18,7 @@
  second QL screen), 030000-1FFFFF RAM (SRAM), 800000-80003F the ports of the Next core. The
  microdrive images are in the SRAM above 2 MB, where the CPU does not reach.
 
- Left for the later phases (ports tied here): the SD card, the DS1307 of the clock, the mouse.
+ Left for the later phases (ports tied here): the SD card.
  Not ported: the sprites and PCM of the Issue 4 (no block RAM for them), the 68020 is a parameter.
 */
 
@@ -48,6 +48,18 @@ module ql #(
 	output wire [15:0] audio_r,
 
 	input wire [63:0] kbd_matrix,
+
+	// the mouse (kg_mcu)
+	input wire [7:0] ms_x,
+	input wire [7:0] ms_y,
+	input wire [2:0] ms_b,
+	input wire ms_upd,
+
+	// the clock of the board: the DS1307 registers of kg_mcu_rtc
+	output wire [7:0] rtc_a,
+	input wire [7:0] rtc_do,
+	output wire [7:0] rtc_di,
+	output wire rtc_wr,
 
 	// the SD card: a byte exchange, sd_start one clock
 	output reg sd_cs_n = 1'b1,
@@ -166,6 +178,7 @@ wire cpu_rom  = cpu_act && (cpu_addr[23:16] == 8'h0 || cpu_addr[23:15] == 9'h02)
 wire cpu_mem  = cpu_ram || cpu_rom;
 wire vid_mem  = cpu_act && (cpu_addr[23:16] == 8'b00000010);     // video ram
 wire memio    = cpu_act && (cpu_addr[23:20] == 4'b1000);
+wire [4:0] mreg = cpu_addr[5:1];
 
 wire sys_wr = cpu_wr && cpu_ram;
 wire sys_oe = cpu_rd && cpu_mem;
@@ -283,6 +296,9 @@ ql_video video (
 // ------------------------------------------------------------------- ZX8302, IPC
 
 wire zx8302_sel = cpu_io && !cpu_addr[6];
+wire qimi_irq;
+wire zx_rtc_load;
+wire [31:0] zx_rtc_value;
 wire [15:0] zx8302_dout;
 wire ipc_audio;
 
@@ -295,7 +311,7 @@ zx8302 zx8302 (
 	.ce_bus      ( ce_cpu       ),
 	.ce_11       ( ce_11        ),
 	.reset       ( reset        ),
-	.xint        ( 1'b0         ),
+	.xint        ( qimi_irq     ),
 	.ipl         ( cpu_ipl      ),
 	.led         (              ),
 	.audio       ( ipc_audio    ),
@@ -306,6 +322,8 @@ zx8302 zx8302 (
 	.cpu_din     ( cpu_dout     ),
 	.cpu_dout    ( zx8302_dout  ),
 	.kbd_matrix  ( kbd_matrix   ),
+	.rtc_load    ( zx_rtc_load  ),
+	.rtc_value   ( zx_rtc_value ),
 	.vs          ( zx_vs        ),
 	.mdv_addr    ( mdv_addr     ),
 	.mdv_din     ( mdv_data     ),
@@ -316,6 +334,43 @@ zx8302 zx8302 (
 	.mdv_emem    ( mdv_emem     ),
 	.dbg_ipc_write ( dbg_ipc_write ),
 	.dbg_comctrl ( dbg_comctrl )
+);
+
+// ------------------------------------------------------------------- the mouse, the clock
+
+wire qimi_sel = cpu_io && (cpu_addr[13:4] == 10'b1111111011 || cpu_addr[13:4] == 10'b1111111001);
+wire [7:0] qimi_dout;
+
+ql_qimi qimi (
+	.clk      ( clk       ),
+	.reset    ( reset     ),
+	.cpu_ack  ( qimi_sel && ce_cpu && cpu_addr[5] && cpu_addr[1] ),
+	.cpu_addr ( { cpu_addr[5], cpu_addr[1] } ),
+	.cpu_data ( qimi_dout ),
+	.irq      ( qimi_irq  ),
+	.ms_x     ( ms_x      ),
+	.ms_y     ( ms_y      ),
+	.ms_b     ( ms_b      ),
+	.ms_upd   ( ms_upd    )
+);
+
+wire [7:0] i2c_din;
+wire i2c_busy;
+
+ql_rtc rtc (
+	.clk       ( clk          ),
+	.reset     ( reset        ),
+	.rtc_a     ( rtc_a        ),
+	.rtc_do    ( rtc_do       ),
+	.rtc_di    ( rtc_di       ),
+	.rtc_wr    ( rtc_wr       ),
+	.rtc_load  ( zx_rtc_load  ),
+	.rtc_value ( zx_rtc_value ),
+	.wr_data   ( ce_cpu && memio && cpu_wr && mreg == 5'b10000 ),
+	.wr_ctrl   ( ce_cpu && memio && cpu_wr && mreg == 5'b10001 ),
+	.cpu_d     ( cpu_dout[7:0] ),
+	.i2c_din   ( i2c_din      ),
+	.i2c_busy  ( i2c_busy     )
 );
 
 // ------------------------------------------------------------------- AY (QSound)
@@ -354,7 +409,6 @@ reg [15:0] memio_out = 16'd0;
 reg [15:0] utbuf = 16'd0, ntbuf = 16'd0;
 reg [1:0] cpu_type = 2'b00;
 
-wire [4:0] mreg = cpu_addr[5:1];
 
 always @(posedge clk) begin
 	sd_start <= 1'b0;
@@ -370,7 +424,8 @@ always @(posedge clk) begin
 			if (!cpu_ds[1]) memio_out[15:8] <= mdv_smem[15:8];
 		end
 		5'b01111: memio_out <= 16'h4E32;   // the id of the core
-		5'b10001: memio_out <= 16'h0002;   // the I2C of the RTC: not busy, no answer (phase 2)
+		5'b10000: memio_out <= { i2c_din, i2c_din };
+		5'b10001: memio_out <= { 15'd0, i2c_busy };
 		5'b10010: memio_out <= 16'h0000;   // ESP UART: nothing (phase 5)
 		5'b10100: if (!cpu_ds[1]) memio_out[15:8] <= psg_do;
 		5'b11000: begin memio_out <= utimer[31:16]; utbuf <= utimer[15:0]; end
@@ -429,7 +484,7 @@ end
 
 // ------------------------------------------------------------------- CPU data in
 
-wire [15:0] io_dout = (!cpu_addr[6]) ? zx8302_dout : 16'h0000;
+wire [15:0] io_dout = qimi_sel ? { qimi_dout, qimi_dout } : (!cpu_addr[6]) ? zx8302_dout : 16'h0000;
 
 assign cpu_din =
 	memio    ? memio_out :

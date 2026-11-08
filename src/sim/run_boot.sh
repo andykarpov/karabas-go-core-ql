@@ -35,6 +35,6 @@ sed 's/t8049_notri #(.gate_port_input_g(0)) t8049/t8049_notri t8049/' $RTL/ql/ip
 verilator --cc --exe --build -j 8 -O3 --x-assign fast --x-initial fast --noassert -Wno-fatal -Wno-lint -Wno-style \
 	--top-module ql --Mdir build/v -CFLAGS -O2 -o Vql \
 	build/tg68k.v build/t8049.v build/ym2149.v \
-	build/ql_sim.v $RTL/ql/ql_video.v $RTL/ql/zx8302.v build/ipc_sim.v $RTL/ql/mdv.v ../../modules/rtl/mem/kg_tdpram.v \
+	build/ql_sim.v $RTL/ql/ql_video.v $RTL/ql/zx8302.v build/ipc_sim.v $RTL/ql/mdv.v $RTL/ql/ql_qimi.v $RTL/ql/ql_rtc.v ../../modules/rtl/mem/kg_tdpram.v \
 	$PWD/sim_ql.cpp > build/verilate.log 2>&1 || { tail -30 build/verilate.log; exit 1; }
 time build/v/Vql "$MS" "$EVERY" "${ROMS[@]}"

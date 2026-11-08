@@ -135,11 +135,6 @@ assign SDR_CAS_N = 1'b1;
 assign SDR_RAS_N = 1'b1;
 assign SDR_DQ = 16'bz;
 
-// sound comes in Ф2
-assign DAC_BCK = 1'b0;
-assign DAC_WS = 1'b0;
-assign DAC_DAT = 1'b0;
-
 // ------------------------------------------------------------------ clocks
 
 wire clk_65, clk_ser, clk_ser_n, clk_8, clk_32;
@@ -185,6 +180,13 @@ assign MCU_IO[5:2] = 4'bzzzz;
 wire [7:0] kb_scancode;
 wire kb_scancode_upd;
 wire [12:0] joy_l, joy_r;
+wire [7:0] ms_x, ms_y;
+wire [2:0] ms_b;
+wire ms_upd;
+wire [7:0] rtc_a, rtc_do, rtc_di;
+wire rtc_wr;
+wire [23:0] matrix_cmd;
+wire matrix_cmd_wr;
 wire rom_active, rom_wr;
 wire [31:0] rom_addr;
 wire [7:0] rom_data;
@@ -199,9 +201,10 @@ wire ft_cs_n, ft_mosi, ft_spi_on, sd2_cs_n, sd2_mosi;
 kg_mcu #(
 	.BURST_MAX_MHZ(32),  // Rev.G has MCU_SCK on a global clock pin
 	.CS_FILTER(3),
-	.ENABLE_RTC(0),      // Ф2
+	.ENABLE_RTC(1),      // rtc_mode 1: DS1307 registers
+	.RTC_SKIP_0D(0),
 	.ENABLE_UART(0),
-	.ENABLE_MATRIX(0),   // Ф2: the audio peaks
+	.ENABLE_MATRIX(1),   // the audio peaks
 	.ENABLE_DEBUG(0),
 	.ENABLE_IMG(0),      // Ф3
 	.ENABLE_FILE(1),
@@ -227,6 +230,11 @@ kg_mcu #(
 	.KB_SCANCODE_UPD(kb_scancode_upd),
 	.JOY_L(joy_l),
 	.JOY_R(joy_r),
+	.MS_X(ms_x),
+	.MS_Y(ms_y),
+	.MS_Z(),
+	.MS_B(ms_b),
+	.MS_UPD(ms_upd),
 
 	.ROMLOADER_ACTIVE(rom_active),
 	.ROMLOAD_ADDR(rom_addr),
@@ -256,11 +264,11 @@ kg_mcu #(
 	.DVI_ONLY(dvi_only),
 
 	// not used in this phase
-	.RTC_A(),
-	.RTC_DI(8'h00),
-	.RTC_DO(),
-	.RTC_CS(1'b0),
-	.RTC_WR_N(1'b1),
+	.RTC_A(rtc_a),
+	.RTC_DI(rtc_di),
+	.RTC_DO(rtc_do),
+	.RTC_CS(rtc_wr),
+	.RTC_WR_N(~rtc_wr),
 	.IMG_MOUNTED(),
 	.IMG_SIZE(),
 	.IMG_WP(),
@@ -284,8 +292,8 @@ kg_mcu #(
 	.UART_DLL(8'h00),
 	.UART_DLM_WR(1'b0),
 	.UART_DLL_WR(1'b0),
-	.MATRIX_CMD(24'h000000),
-	.MATRIX_CMD_WR(1'b0),
+	.MATRIX_CMD(matrix_cmd),
+	.MATRIX_CMD_WR(matrix_cmd_wr),
 	.DEBUG_ADDR(16'h0000),
 	.DEBUG_DATA(16'h0000),
 	.ESP_UART_RX_DATA(8'h00),
@@ -335,6 +343,7 @@ wire [1:0] ram_we_n, ram_rd_n;
 wire [2:0] vid_r, vid_g, vid_b;
 wire vid_hs, vid_vs, vid_de;
 wire [63:0] kbd_matrix;
+wire [15:0] ql_l, ql_r;
 
 ql ql (
 	.clk(clk_32),
@@ -351,9 +360,17 @@ ql ql (
 	.video_hs(vid_hs),
 	.video_vs(vid_vs),
 	.video_de(vid_de),
-	.audio_l(),
-	.audio_r(),
+	.audio_l(ql_l),
+	.audio_r(ql_r),
 	.kbd_matrix(kbd_matrix),
+	.ms_x(ms_x),
+	.ms_y(ms_y),
+	.ms_b(ms_b),
+	.ms_upd(ms_upd),
+	.rtc_a(rtc_a),
+	.rtc_do(rtc_do),
+	.rtc_di(rtc_di),
+	.rtc_wr(rtc_wr),
 	.sd_cs_n(),
 	.sd_start(),
 	.sd_tx(),
@@ -370,8 +387,8 @@ ql_keyboard keyboard (
 	.reset(reset_r),
 	.scancode(kb_scancode),
 	.scancode_upd(kb_scancode_upd),
-	.js0(5'd0),
-	.js1(5'd0),
+	.js0({ joy_r[6] | joy_r[7], joy_r[1], joy_r[2], joy_r[3], joy_r[4] }),   // the second port: F1..F5
+	.js1({ joy_l[6] | joy_l[7], joy_l[1], joy_l[2], joy_l[3], joy_l[4] }),   // the first: cursors, space
 	.matrix(kbd_matrix)
 );
 
@@ -410,6 +427,43 @@ kg_osd_overlay #(.H_OFFSET(276), .V_OFFSET(105), .H_DIV4_WIDTH(1400), .V_DIV4_HE
 	.v_offset(11'd0),
 	.h_offset(11'd0),
 	.osd_command(osd_command)
+);
+
+// ------------------------------------------------------------------ audio
+
+// 48 kHz of clk_32: the samples of the DAC and HDMI, and the rate of the DC filter
+reg [15:0] smp_acc = 16'd0;
+wire smp_ce = (smp_acc >= 16'd32500 - 16'd48);
+always @(posedge clk_32)
+	smp_acc <= smp_ce ? smp_acc + 16'd48 - 16'd32500 : smp_acc + 16'd48;
+
+wire signed [15:0] audio_l, audio_r;
+ql_audio audio (
+	.clk(clk_32),
+	.ce(smp_ce),
+	.in_l(ql_l),
+	.in_r(ql_r),
+	.out_l(audio_l),
+	.out_r(audio_r)
+);
+
+kg_pcm5102 #(.DIV_BITS(2)) dac (
+	.clk(clk_32),
+	.reset(areset),
+	.left(audio_l),
+	.right(audio_r),
+	.din(DAC_DAT),
+	.bck(DAC_BCK),
+	.lrck(DAC_WS)
+);
+
+// the level meters of the mcu (dot matrix)
+audio_peaks peaks (
+	.clk(clk_32),
+	.audio_l(audio_l),
+	.audio_r(audio_r),
+	.cmd_wr(matrix_cmd_wr),
+	.cmd(matrix_cmd)
 );
 
 // ------------------------------------------------------------------ HDMI
@@ -451,8 +505,8 @@ hdmi_tx #(.SAMPLE_FREQ(48000)) hdmi (
 	.hsync(hdmi_hs),
 	.de(hdmi_de),
 	.audio_en(~dvi_only),
-	.audio_l(24'd0),
-	.audio_r(24'd0),
+	.audio_l({ audio_l, 8'd0 }),
+	.audio_r({ audio_r, 8'd0 }),
 	.audio_clk(aud_stb),
 	.tx_clk_n(TMDS_N[3]),
 	.tx_clk_p(TMDS_P[3]),

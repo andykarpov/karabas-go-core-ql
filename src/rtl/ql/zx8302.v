@@ -53,6 +53,10 @@ module zx8302 (
 
 	input [63:0]   kbd_matrix,
 
+	// the time of the board, seconds since 1961: one clock of rtc_load
+	input          rtc_load,
+	input [31:0]   rtc_value,
+
 	// bus interface
 	input          cpu_sel,
 	input          cpu_wr,
@@ -134,6 +138,9 @@ always @(posedge clk) begin
 			end
 		end
 	end
+
+	if (rtc_load)
+		rtc <= { rtc_value, 16'd0 };
 end
 
 // ---------------------------------------------------------------------------------
