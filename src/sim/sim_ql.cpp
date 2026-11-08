@@ -54,6 +54,10 @@ int main(int argc, char **argv) {
 	std::vector<uint32_t> pcs;
 	uint32_t last_pc = 0;
 	uint64_t same = 0;
+	// KEY_MS=<ms> KEY_BIT=<matrix bit>: a key held for 200 ms; counts of the IPC traffic
+	double key_ms = getenv("KEY_MS") ? atof(getenv("KEY_MS")) : -1;
+	int key_bit = getenv("KEY_BIT") ? atoi(getenv("KEY_BIT")) : 1;
+	uint64_t n_wr = 0, n_comctrl = 0; int comctrl_d = 1, wr_d = 0;
 
 	for (uint64_t t = 0; t < total; t++) {
 		top.clk = 0;
@@ -62,6 +66,11 @@ int main(int argc, char **argv) {
 		top.clk = 1;
 		top.eval();
 		if (t == 2000) top.reset = 0;
+		if (key_ms >= 0) top.kbd_matrix = (t > key_ms * per_ms && t < (key_ms + 200) * per_ms) ? (1ULL << key_bit) : 0;
+		if (top.dbg_ipc_write && !wr_d) n_wr++;
+		wr_d = top.dbg_ipc_write;
+		if (comctrl_d && !top.dbg_comctrl) n_comctrl++;
+		comctrl_d = top.dbg_comctrl;
 
 		if (!(top.ram_we_n & 2)) sram[top.ram_addr] = (sram[top.ram_addr] & 0x00FF) | (top.ram_dout & 0xFF00);
 		if (!(top.ram_we_n & 1)) sram[top.ram_addr] = (sram[top.ram_addr] & 0xFF00) | (top.ram_dout & 0x00FF);
@@ -79,7 +88,7 @@ int main(int argc, char **argv) {
 			if (t >= next_frame) {
 				write_frame(frames++);
 				next_frame += (uint64_t)(every * per_ms);
-				printf("%7.1f ms  pc %06x\n", t / (double)per_ms, top.dbg_cpu_addr & 0xFFFFFF);
+				printf("%7.1f ms  pc %06x  ipc_write %llu comctrl %llu\n", t / (double)per_ms, top.dbg_cpu_addr & 0xFFFFFF, (unsigned long long)n_wr, (unsigned long long)n_comctrl);
 				fflush(stdout);
 			}
 		}

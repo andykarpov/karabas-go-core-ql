@@ -77,3 +77,4 @@ _xmsgs/
 # simulation builds and make stamps
 src/sim/build/
 src/kg_*.stamp
+src/build.log
