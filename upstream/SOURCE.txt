@@ -1,0 +1,4 @@
+Sinclair QL core for the ZX Spectrum Next (KS2 / Issue 4), Theodoulos Liontakis.
+https://gitlab.com/thesmog358/qlnext commit 6c34dcdfca16d8f9e99a9fbd6e44a203ec9a510d (2025-01-15)
+Imported unchanged: the top and constraints here; the RTL in src/rtl/{ql,tg68k,t48}.
+Not imported: the Vivado project and the IP cores (.xci, .xcix).
