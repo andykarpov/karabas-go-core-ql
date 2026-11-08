@@ -61,6 +61,8 @@ module ql #(
 	input wire [20:0] mdv_end,
 
 	// debug
+	output wire dbg_ipc_write,
+	output wire dbg_comctrl,
 	output wire [31:0] dbg_cpu_addr,
 	output wire dbg_ce_cpu
 );
@@ -311,7 +313,9 @@ zx8302 zx8302 (
 	.mdv_men     ( mdv_ack      ),
 	.mdv_reverse ( mdv_reverse  ),
 	.mdv_smem    ( mdv_smem     ),
-	.mdv_emem    ( mdv_emem     )
+	.mdv_emem    ( mdv_emem     ),
+	.dbg_ipc_write ( dbg_ipc_write ),
+	.dbg_comctrl ( dbg_comctrl )
 );
 
 // ------------------------------------------------------------------- AY (QSound)

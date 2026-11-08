@@ -59,7 +59,10 @@ module zx8302 (
 	input [1:0]    cpu_addr,      // a[5,1]
 	input [1:0]    cpu_ds,
 	input [15:0]   cpu_din,
-	output [15:0]  cpu_dout
+	output [15:0]  cpu_dout,
+
+	output         dbg_ipc_write,
+	output         dbg_comctrl
 );
 
 // ---------------------------------------------------------------------------------
@@ -139,6 +142,8 @@ end
 
 wire ipc_comctrl;
 wire ipc_comdata_out;
+assign dbg_ipc_write = ipc_write;
+assign dbg_comctrl = ipc_comctrl;
 
 // comdata shift register
 reg [3:0] comdata_reg = 4'd0;
