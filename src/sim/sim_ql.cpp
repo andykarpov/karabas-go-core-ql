@@ -53,6 +53,7 @@ int main(int argc, char **argv) {
 	top.mdv_start = 0;
 	top.mdv_end = 0;
 	top.hold = 0;
+	top.cpu_slow = 0;
 	top.mdv_fast = 0;
 	top.mdv_reverse_in = 0;
 	std::vector<uint32_t> pcs;

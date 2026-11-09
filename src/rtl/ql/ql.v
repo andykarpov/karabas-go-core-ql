@@ -72,6 +72,9 @@ module ql #(
 	// the CPU stops (not a reset) while the firmware writes a microdrive image into the SRAM
 	input wire hold,
 
+	// the CPU at about the speed of a real QL (1 cycle in 10, about 1.08 MHz of bus accesses)
+	input wire cpu_slow,
+
 	// the microdrive image in the SRAM (word addresses): one clock of mdv_load sets them
 	input wire mdv_load,
 	input wire [20:0] mdv_start,
@@ -193,6 +196,7 @@ wire sys_oe = cpu_rd && cpu_mem;
 // ------------------------------------------------------------------- SRAM / VRAM cycle
 
 reg steal = 1'b0;
+reg [3:0] slow_cnt = 4'd0;
 reg [2:0] delay_cnt = 3'd0;
 reg [15:0] rdata = 16'hFFFF;
 reg [14:0] vaddr1 = 15'd0;
@@ -212,7 +216,8 @@ always @(posedge clk) begin
 
 	case (ph)
 	2'd0: begin
-		cpu_en <= !steal && !hold;
+		cpu_en <= !steal && !hold && (!cpu_slow || slow_cnt == 4'd0);
+		slow_cnt <= (slow_cnt == 4'd9) ? 4'd0 : slow_cnt + 4'd1;
 		mdv_cycle <= steal && mdv_read;
 		ram_addr <= (steal && mdv_read) ? mdv_addr : { 1'b0, cpu_addr[20:1] };
 		ram_rd_n <= (steal ? mdv_read : sys_oe) ? (steal ? 2'b00 : cpu_ds) : 2'b11;
