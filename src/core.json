@@ -1,14 +1,15 @@
 {
     "id": "ql",
     "name": "Sinclair QL",
-    "build": "26110901",
+    "build": "26110905",
     "visible": true,
     "type": "osd",
     "order": 18,
     "eeprom_bank": 255,
     "rtc_mode": 1,
     "roms": [
-    {"filename": "roms/min198a1.rom", "address": 0}
+    {"filename": "roms/min198a1.rom", "address": 0},
+    {"filename": "roms/qlsde.rom", "address": 49152}
     ],
     "boards": {
         "minig": {"bitstream": "karabas_minig.bin"}
@@ -16,6 +17,11 @@
     "osd": [
     {"type": "FL", "name": "OS ROM", "slot": 0, "extensions": ".rom,.bin", "dir": "/ql", "hotkey": "Menu+F1"},
     {"type": "FL", "name": "Back ROM", "slot": 1, "extensions": ".rom,.bin", "dir": "/ql", "hotkey": "Menu+F2"},
-    {"type": "T", "name": "Reset", "hotkey": "F12"}
+    {"type": "FL", "name": "MDV1", "slot": 2, "extensions": ".mdv", "dir": "/ql", "hotkey": "Menu+F3"},
+    {"type": "F", "name": "SD card", "slot": 3, "extensions": ".img", "dir": "/ql", "hotkey": "Menu+F4"},
+    {"type": "T", "name": "Reset", "hotkey": "F12"},
+    {"type": "S", "name": "MDV order", "options": ["Normal", "Reverse"], "default": 0},
+    {"type": "S", "name": "SD2 card", "options": ["Off", "On"], "default": 0},
+    {"type": "S", "name": "MDV speed", "options": ["Normal", "Fast"], "default": 1}
     ]
 }
