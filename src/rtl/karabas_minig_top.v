@@ -180,6 +180,12 @@ assign MCU_IO[5:2] = 4'bzzzz;
 wire [7:0] kb_scancode;
 wire kb_scancode_upd;
 wire [12:0] joy_l, joy_r;
+wire [7:0] img_mounted, img_data, img_result, img_wp;
+wire [63:0] img_size;
+wire img_data_wr, img_result_wr, img_q_wr, img_q_ack;
+wire [8:0] img_data_addr;
+wire [15:0] img_sum;
+wire [23:0] img_q_di;
 wire [7:0] ms_x, ms_y;
 wire [2:0] ms_b;
 wire ms_upd;
@@ -206,13 +212,14 @@ kg_mcu #(
 	.ENABLE_UART(0),
 	.ENABLE_MATRIX(1),   // the audio peaks
 	.ENABLE_DEBUG(0),
-	.ENABLE_IMG(0),      // Ф3
+	.ENABLE_IMG(1),      // the SD card image (F slot 3)
+	.ENABLE_IMG_WP(1),
 	.ENABLE_FILE(1),
 	.FILE_CMDS(0),       // the ioctl commands of the FL items
 	.FILE_WR_EACH(1),
 	.FILE_TO_ROM(0),
 	.ENABLE_FT(1),
-	.ENABLE_SD2(1)
+	.ENABLE_SD2(0)       // the second card belongs to the core: spi.vhd, card 1
 ) mcu (
 	.CLK(clk_32),
 	.N_RESET(~areset),
@@ -269,18 +276,18 @@ kg_mcu #(
 	.RTC_DO(rtc_do),
 	.RTC_CS(rtc_wr),
 	.RTC_WR_N(~rtc_wr),
-	.IMG_MOUNTED(),
-	.IMG_SIZE(),
-	.IMG_WP(),
-	.IMG_DATA_WR(),
-	.IMG_DATA_ADDR(),
-	.IMG_DATA(),
-	.IMG_RESULT_WR(),
-	.IMG_RESULT(),
-	.IMG_SUM(),
-	.IMG_Q_WR(1'b0),
-	.IMG_Q_DI(24'd0),
-	.IMG_Q_ACK(),
+	.IMG_MOUNTED(img_mounted),
+	.IMG_SIZE(img_size),
+	.IMG_WP(img_wp),
+	.IMG_DATA_WR(img_data_wr),
+	.IMG_DATA_ADDR(img_data_addr),
+	.IMG_DATA(img_data),
+	.IMG_RESULT_WR(img_result_wr),
+	.IMG_RESULT(img_result),
+	.IMG_SUM(img_sum),
+	.IMG_Q_WR(img_q_wr),
+	.IMG_Q_DI(img_q_di),
+	.IMG_Q_ACK(img_q_ack),
 	.PS2_COMMAND(16'h0000),
 	.PS2_COMMAND_WR(1'b0),
 	.UART_RX_DATA(),
@@ -305,15 +312,15 @@ kg_mcu #(
 assign FT_SPI_CS_N = ft_spi_on ? ft_cs_n : 1'b1;
 assign FT_SPI_SCK = ft_spi_on ? mcu_sck_ibufg : 1'b1;
 assign FT_SPI_MOSI = ft_spi_on ? ft_mosi : 1'b1;
-assign SD_CS_N = sd2_cs_n;
-assign SD_DI = sd2_mosi;
-assign SD_CLK = mcu_sck_ibufg;
 
 // ------------------------------------------------------------------ soft switches
 
 // the index of an item = its position in "osd" of core.json, the F / FL items included
-localparam SW_RESET = 2;
-localparam SW_N = 3;
+localparam SW_RESET = 4;
+localparam SW_MDV_REV = 5;
+localparam SW_SD2 = 6;
+localparam SW_MDV_FAST = 7;
+localparam SW_N = 8;
 wire [SW_N*8-1:0] sw;
 kg_soft_switches #(.N(SW_N)) soft_switches (
 	.clk(clk_32),
@@ -324,16 +331,45 @@ kg_soft_switches #(.N(SW_N)) soft_switches (
 
 // ------------------------------------------------------------------ the machine
 
-// the base addresses of the FL slots: 0 the OS ROM, 1 the back ROM
-wire [21:0] file_base = (file_slot == 8'd1) ? 22'h00C000 : 22'h000000;
+// the base addresses of the FL slots: 0 the OS ROM, 1 the back ROM, 2 the microdrive image (above the
+// 2 MB of the CPU). A ROM resets the machine; for a microdrive image the CPU only waits.
+wire file_mdv = file_slot == 8'd2;
+wire [21:0] file_base = (file_slot == 8'd1) ? 22'h00C000 : file_mdv ? 22'h200000 : 22'h000000;
 wire load_active = rom_active || file_active;
+// the firmware raises file_active before it sends the slot: the CPU waits during any file, and it is
+// a byte of a slot other than the microdrive that resets the machine
+reg file_rst = 1'b0;
+always @(posedge clk_32)
+	if (!file_active)
+		file_rst <= 1'b0;
+	else if (file_wr && !file_mdv)
+		file_rst <= 1'b1;
+wire load_reset = rom_active || file_rst;
+
+localparam [20:0] MDV_START = 21'h100000;   // a word address
+reg [21:0] mdv_last = 22'd0;
+reg mdv_active_d = 1'b0;
+reg mdv_load = 1'b0;
+always @(posedge clk_32) begin
+	mdv_active_d <= file_active && file_mdv;
+	mdv_load <= mdv_active_d && !(file_active && file_mdv);
+	if (file_wr && file_mdv)
+		mdv_last <= file_addr[21:0];
+end
 wire load_wr = rom_wr || file_wr;
 wire [21:0] load_addr = rom_wr ? rom_addr[21:0] : (file_base + file_addr[21:0]);
 wire [7:0] load_data = rom_wr ? rom_data : file_data;
 
 reg reset_r = 1'b1;
 always @(posedge clk_32)
-	reset_r <= areset || sw[SW_RESET*8] || mcu_busy || load_active;
+	reset_r <= areset || sw[SW_RESET*8] || mcu_busy || load_reset;
+
+wire sd_cs_n, sd_cs1_n, sd_w;
+wire [7:0] sd_div, sd_tx, spi_rx, card_rx;
+wire spi_busy;
+// the OSD item SD2: off by default, the second card is not touched then (the driver can write to a card it mounts)
+wire sd2_on = sw[SW_SD2*8];
+wire sd2_sel = !sd_cs1_n && sd2_on;
 
 wire [20:0] ram_addr;
 wire [15:0] ram_din, ram_dout;
@@ -371,15 +407,105 @@ ql ql (
 	.rtc_do(rtc_do),
 	.rtc_di(rtc_di),
 	.rtc_wr(rtc_wr),
-	.sd_cs_n(),
-	.sd_start(),
-	.sd_tx(),
-	.sd_rx(8'hFF),
-	.sd_ready(1'b1),
-	.mdv_start(21'd0),
-	.mdv_end(21'd0),
+	.sd_cs_n(sd_cs_n),
+	.sd_cs1_n(sd_cs1_n),
+	.sd_w(sd_w),
+	.sd_div(sd_div),
+	.sd_tx(sd_tx),
+	.sd_rx(sd2_sel ? spi_rx : card_rx),
+	.sd_busy(sd_cs_n && sd2_on ? spi_busy : 1'b0),
+	.hold(file_active),
+	.mdv_load(mdv_load),
+	.mdv_start(MDV_START),
+	.mdv_end(MDV_START + mdv_last[21:1]),
+	.mdv_reverse_in(sw[SW_MDV_REV*8]),
+	.mdv_fast(sw[SW_MDV_FAST*8]),
 	.dbg_cpu_addr(),
 	.dbg_ce_cpu()
+);
+
+// the SD cards. Card 0: an image of the file mounter (F slot 3), the exchange takes no time; card 1:
+// the second SD slot of the board through the SPI of the Next core, which also gives the clocks a
+// card needs with no card selected. Card 1 only with the OSD item SD2 on.
+
+reg sd_w_d = 1'b0, sd_cs_d = 1'b1;
+always @(posedge clk_32) begin
+	sd_w_d <= sd_w;
+	sd_cs_d <= sd_cs_n;
+end
+wire sd_exch = sd_w && !sd_w_d;
+wire sd_cs_wr = sd_cs_n != sd_cs_d;
+
+SPI sd2_spi (
+	.SCLKo(SD_CLK),
+	.MOSI(SD_DI),
+	.MISO(SD_DO),
+	.clk(clk_32),
+	.reset(reset_r),
+	.w(sd_w && sd2_on),
+	.readyo(spi_busy),
+	.data_in(sd_tx),
+	.data_out(spi_rx),
+	.divider(sd_div)
+);
+assign SD_CS_N = sd_cs1_n || !sd2_on;
+
+wire [7:0] sdc_img_mounted;
+wire [63:0] sdc_img_size;
+wire card_rd, card_wr, sdc_busy, sdc_done, sdc_in_strobe;
+wire [2:0] sdc_slot;
+wire [31:0] card_lba;
+wire [8:0] sdc_byte_addr;
+wire [7:0] sdc_in_data, card_byte_out;
+
+img_sdc #(.OUT_LATENCY(3), .TIMEOUT(24'd6500000)) sdc (   // 200 ms at 32.5 MHz
+	.clk(clk_32),
+	.reset(1'b0),
+	.img_mounted(img_mounted),
+	.img_size(img_size),
+	.img_data_wr(img_data_wr),
+	.img_data_addr(img_data_addr),
+	.img_data(img_data),
+	.img_result_wr(img_result_wr),
+	.img_result(img_result),
+	.img_sum(img_sum),
+	.img_q_wr(img_q_wr),
+	.img_q_di(img_q_di),
+	.img_q_ack(img_q_ack),
+	.sdc_img_mounted(sdc_img_mounted),
+	.sdc_img_size(sdc_img_size),
+	.sdc_rd({ 4'd0, card_rd, 3'd0 }),
+	.sdc_wr({ 4'd0, card_wr, 3'd0 }),
+	.sdc_sector(card_lba),
+	.sdc_busy(sdc_busy),
+	.sdc_done(sdc_done),
+	.sdc_error(),
+	.sdc_slot(sdc_slot),
+	.sdc_byte_in_strobe(sdc_in_strobe),
+	.sdc_byte_addr(sdc_byte_addr),
+	.sdc_byte_in_data(sdc_in_data),
+	.sdc_byte_out_data(card_byte_out),
+	.active()
+);
+
+ql_sd_card card (
+	.clk(clk_32),
+	.reset(reset_r),
+	.cs_wr(sd_cs_wr),
+	.d_wr(sd_exch),
+	.din(sd_cs_wr ? { 7'd0, !sd_cs_n } : sd_tx),
+	.dout(card_rx),
+	.img_mounted(sdc_img_mounted[3]),
+	.img_size(sdc_img_size[31:0]),
+	.hd_rd(card_rd),
+	.hd_wr(card_wr),
+	.hd_lba(card_lba),
+	.hd_busy(sdc_busy && sdc_slot == 3'd3),
+	.hd_done(sdc_done && sdc_slot == 3'd3),
+	.hd_byte_in_strobe(sdc_in_strobe && sdc_slot == 3'd3),
+	.hd_byte_addr(sdc_byte_addr),
+	.hd_byte_in_data(sdc_in_data),
+	.hd_byte_out_data(card_byte_out)
 );
 
 ql_keyboard keyboard (

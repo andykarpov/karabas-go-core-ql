@@ -18,7 +18,6 @@
  second QL screen), 030000-1FFFFF RAM (SRAM), 800000-80003F the ports of the Next core. The
  microdrive images are in the SRAM above 2 MB, where the CPU does not reach.
 
- Left for the later phases (ports tied here): the SD card.
  Not ported: the sprites and PCM of the Issue 4 (no block RAM for them), the 68020 is a parameter.
 */
 
@@ -61,16 +60,24 @@ module ql #(
 	output wire [7:0] rtc_di,
 	output wire rtc_wr,
 
-	// the SD card: a byte exchange, sd_start one clock
-	output reg sd_cs_n = 1'b1,
-	output reg sd_start = 1'b0,
+	// the SD cards: sd_w rising = the exchange of one byte, sd_busy until its end (as spi.vhd of the Next)
+	output reg sd_cs_n = 1'b1,      // card 0, $80000B
+	output reg sd_cs1_n = 1'b1,     // card 1, $80000D
+	output reg sd_w = 1'b0,
+	output reg [7:0] sd_div = 8'd2,
 	output reg [7:0] sd_tx = 8'hFF,
 	input wire [7:0] sd_rx,
-	input wire sd_ready,
+	input wire sd_busy,
 
-	// the microdrive image in the SRAM (word addresses)
+	// the CPU stops (not a reset) while the firmware writes a microdrive image into the SRAM
+	input wire hold,
+
+	// the microdrive image in the SRAM (word addresses): one clock of mdv_load sets them
+	input wire mdv_load,
 	input wire [20:0] mdv_start,
 	input wire [20:0] mdv_end,
+	input wire mdv_reverse_in,
+	input wire mdv_fast,
 
 	// debug
 	output wire dbg_ipc_write,
@@ -205,7 +212,7 @@ always @(posedge clk) begin
 
 	case (ph)
 	2'd0: begin
-		cpu_en <= !steal;
+		cpu_en <= !steal && !hold;
 		mdv_cycle <= steal && mdv_read;
 		ram_addr <= (steal && mdv_read) ? mdv_addr : { 1'b0, cpu_addr[20:1] };
 		ram_rd_n <= (steal ? mdv_read : sys_oe) ? (steal ? 2'b00 : cpu_ds) : 2'b11;
@@ -329,7 +336,8 @@ zx8302 zx8302 (
 	.mdv_din     ( mdv_data     ),
 	.mdv_read    ( mdv_read     ),
 	.mdv_men     ( mdv_ack      ),
-	.mdv_reverse ( mdv_reverse  ),
+	.mdv_reverse ( mdv_reverse || mdv_reverse_in ),
+	.mdv_fast    ( mdv_fast     ),
 	.mdv_smem    ( mdv_smem     ),
 	.mdv_emem    ( mdv_emem     ),
 	.dbg_ipc_write ( dbg_ipc_write ),
@@ -411,12 +419,10 @@ reg [1:0] cpu_type = 2'b00;
 
 
 always @(posedge clk) begin
-	sd_start <= 1'b0;
-
 	if (ph == 2'd1 && memio && cpu_rd) begin
 		case (mreg)
 		5'b00011: memio_out <= { sd_rx, sd_rx };
-		5'b00100: memio_out <= { 7'd0, sd_ready, 7'd0, sd_ready };
+		5'b00100: memio_out <= { 7'd0, sd_busy, 7'd0, sd_busy };
 		5'b00111: memio_out <= { 6'd0, params[8], col256, 6'd0, params[8], col256 };
 		5'b01010: memio_out <= { 7'd0, 4'd0, mdv_smem[20:16] };
 		5'b01011: begin
@@ -438,9 +444,11 @@ always @(posedge clk) begin
 
 	if (ce_cpu && memio && cpu_wr) begin
 		case (mreg)
-		5'b00000: sd_start <= cpu_dout[0];
+		5'b00000: sd_w <= cpu_dout[0];
+		5'b00001: sd_div <= cpu_dout[7:0];
 		5'b00010: sd_tx <= cpu_dout[7:0];
 		5'b00101: sd_cs_n <= cpu_dout[0];
+		5'b00110: sd_cs1_n <= cpu_dout[0];
 		5'b00111: if (!cpu_ds[1]) col256 <= cpu_dout[8];
 		5'b01001: begin
 			if (!cpu_ds[0]) params[7:0] <= cpu_dout[7:0];
@@ -468,8 +476,7 @@ always @(posedge clk) begin
 		endcase
 	end
 
-	if (mdv_start != mdv_smem || mdv_end != mdv_emem) begin
-		// the board mounted an image (phase 3): its addresses win over the CPU's
+	if (mdv_load) begin
 		mdv_smem <= mdv_start;
 		mdv_emem <= mdv_end;
 	end
@@ -479,6 +486,9 @@ always @(posedge clk) begin
 		params <= 16'd0;
 		cpu_type <= 2'b00;
 		sd_cs_n <= 1'b1;
+		sd_cs1_n <= 1'b1;
+		sd_w <= 1'b0;
+		sd_div <= 8'd2;
 	end
 end
 

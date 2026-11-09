@@ -48,9 +48,13 @@ int main(int argc, char **argv) {
 	top.reset = 1;
 	top.kbd_matrix = 0;
 	top.sd_rx = 0xFF;
-	top.sd_ready = 1;
+	top.sd_busy = 0;
+	top.mdv_load = 0;
 	top.mdv_start = 0;
 	top.mdv_end = 0;
+	top.hold = 0;
+	top.mdv_fast = 0;
+	top.mdv_reverse_in = 0;
 	std::vector<uint32_t> pcs;
 	uint32_t last_pc = 0;
 	uint64_t same = 0;

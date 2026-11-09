@@ -42,6 +42,7 @@ module zx8302 (
 	output         mdv_read,
 	input          mdv_men,
 	input          mdv_reverse,
+	input          mdv_fast,
 	input [20:0]   mdv_smem,
 	input [20:0]   mdv_emem,
 
@@ -210,7 +211,9 @@ mdv mdv (
 	.clk      ( clk          ),
 	.reset    ( reset        ),
 	.sel      ( mdv_sel[0]   ),
+	.cpu_read ( cpu_sel && !cpu_wr && ce_bus && cpu_addr == 2'b11 ),
 	.reverse  ( mdv_reverse  ),
+	.fast     ( mdv_fast     ),
 	.gap      ( mdv_gap      ),
 	.tx_empty ( mdv_tx_empty ),
 	.rx_ready ( mdv_rx_ready ),

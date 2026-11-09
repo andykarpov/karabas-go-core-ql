@@ -30,7 +30,9 @@ module mdv
 	input reset,
 
 	input reverse,
+	input fast,      // the bit clock: 0 = 200 kHz of a real drive, 1 = 722 kHz of the Next core
 	input sel,
+	input cpu_read,  // one clock: the CPU read the byte register
 
 	// control bits
 	output gap,
@@ -61,18 +63,19 @@ wire mdv_present = (sel == 1'b1) && (mdv_end > mdv_smem);
 // a gap is permanently present if no mdv is inserted or if there's a gap on the inserted one
 assign gap = (!mdv_present) || mdv_gap;
 
-// the mdv_rx_ready flag must be quite short as the CPU never waits for it to end
-wire mdv_valid = (mdv_bit_cnt[2:0] == 3'b010);
-assign rx_ready = mdv_present && mdv_data_valid && mdv_valid;
+// karabas: rx_ready stays up until the CPU reads the byte (or the next byte comes). In MiST it was a
+// short window of the bit counter, which a fast CPU saw twice for one byte
+reg rx_ready_l = 1'b0;
+assign rx_ready = mdv_present && mdv_data_valid && rx_ready_l;
 assign tx_empty = 1'b0;
 
 assign dout = mdv_bit_cnt[3] ? mdv_data[7:0] : mdv_data[15:8];
 
 // karabas: the bit clock as an enable
-reg [5:0] bit_div = 6'd0;
-wire bit_tick = (bit_div == 6'd44);
+reg [7:0] bit_div = 8'd0;
+wire bit_tick = (bit_div == (fast ? 8'd44 : 8'd161));
 always @(posedge clk)
-	bit_div <= bit_tick ? 6'd0 : bit_div + 6'd1;
+	bit_div <= bit_tick ? 8'd0 : bit_div + 8'd1;
 
 always @(posedge clk) begin
 	if (mem_ena) begin
@@ -80,8 +83,15 @@ always @(posedge clk) begin
 		mem_read <= 1'b0;
 	end
 
+	if (cpu_read)
+		rx_ready_l <= 1'b0;
+
 	if (bit_tick) begin
 		mdv_bit_cnt <= mdv_bit_cnt + 4'd1;
+		if (mdv_bit_cnt[2:0] == 3'b010)
+			rx_ready_l <= 1'b1;
+		else if (mdv_bit_cnt[2:0] == 3'b001)
+			rx_ready_l <= 1'b0;   // the byte was not taken: it is gone
 		if (mdv_bit_cnt == 15) begin
 			mdv_data <= mdv_din;
 			mdv_data_valid <= !mdv_gap_active && (mdv_gap_cnt > 5) &&
