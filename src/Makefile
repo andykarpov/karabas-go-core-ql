@@ -30,8 +30,8 @@ JSON = core.json
 
 # map / par options (cost table 2 by default, the rule of all the cores)
 MAP_T_go ?= 5
-MAP_T_mini ?= 5
-MAP_T_minig ?= 5
+MAP_T_mini ?= 3
+MAP_T_minig ?= 4
 MAP = -logic_opt off -ol high -xe n -xt 3 -register_duplication off -r 4 -global_opt off -mt 2 -detail -ir off -pr b -lc auto -power off
 PAR = -ol high -xe c -mt 4
 

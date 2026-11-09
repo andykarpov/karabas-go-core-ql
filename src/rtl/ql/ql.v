@@ -48,6 +48,14 @@ module ql #(
 
 	input wire [63:0] kbd_matrix,
 
+	// MIDI: the ports at $800026 (ql_midi.v)
+	input wire [7:0] midi_rx_data,
+	input wire midi_rx_avail,
+	input wire midi_tx_ready,
+	output wire midi_rd,
+	output wire [7:0] midi_tx_data,
+	output wire midi_wr,
+
 	// the mouse (kg_mcu)
 	input wire [7:0] ms_x,
 	input wire [7:0] ms_y,
@@ -435,6 +443,7 @@ always @(posedge clk) begin
 			if (!cpu_ds[1]) memio_out[15:8] <= mdv_smem[15:8];
 		end
 		5'b01111: memio_out <= 16'h4E32;   // the id of the core
+		5'b10011: memio_out <= { 6'd0, midi_tx_ready, midi_rx_avail, midi_rx_data };
 		5'b10000: memio_out <= { i2c_din, i2c_din };
 		5'b10001: memio_out <= { 15'd0, i2c_busy };
 		5'b10010: memio_out <= 16'h0000;   // ESP UART: nothing (phase 5)
@@ -496,6 +505,10 @@ always @(posedge clk) begin
 		sd_div <= 8'd2;
 	end
 end
+
+assign midi_rd = ce_cpu && memio && cpu_rd && mreg == 5'b10011 && !cpu_ds[0];
+assign midi_wr = ce_cpu && memio && cpu_wr && mreg == 5'b10011 && !cpu_ds[0];
+assign midi_tx_data = cpu_dout[7:0];
 
 // ------------------------------------------------------------------- CPU data in
 
