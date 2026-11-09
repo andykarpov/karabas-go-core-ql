@@ -415,6 +415,7 @@ ql ql (
 	.sd_rx(sd2_sel ? spi_rx : card_rx),
 	.sd_busy(sd_cs_n && sd2_on ? spi_busy : 1'b0),
 	.hold(file_active),
+	.cpu_slow(1'b0),
 	.mdv_load(mdv_load),
 	.mdv_start(MDV_START),
 	.mdv_end(MDV_START + mdv_last[21:1]),

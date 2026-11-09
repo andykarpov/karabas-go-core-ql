@@ -1,7 +1,7 @@
 {
     "id": "ql",
     "name": "Sinclair QL",
-    "build": "26110905",
+    "build": "26110907",
     "visible": true,
     "type": "osd",
     "order": 18,
@@ -12,6 +12,8 @@
     {"filename": "roms/qlsde.rom", "address": 49152}
     ],
     "boards": {
+        "go": {"bitstream": "karabas_go.bin"},
+        "mini": {"bitstream": "karabas_mini.bin"},
         "minig": {"bitstream": "karabas_minig.bin"}
     },
     "osd": [
