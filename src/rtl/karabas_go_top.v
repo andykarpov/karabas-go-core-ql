@@ -113,22 +113,6 @@ assign WRD_N = 1'b1;
 assign WWR_N = 1'b1;
 assign WRESET_N = 1'b1;
 assign WD = 16'bz;
-
-assign ESP_RESET_N = 1'bz;
-assign ESP_BOOT_N = 1'bz;
-assign MIDI_CLK = 1'b1;
-assign MIDI_RESET_N = 1'b1;
-assign MIDI_TX = 1'b1;
-assign UART_RX = 1'bz;
-assign UART_TX = 1'bz;
-assign UART_CTS = 1'bz;
-
-assign FLASH_CS_N = 1'b1;
-assign FLASH_DI = 1'b1;
-assign FLASH_SCK = 1'b0;
-assign FLASH_WP_N = 1'b1;
-assign FLASH_HOLD_N = 1'b1;
-
 assign FT_OE_N = 1'b1;     // the FT812 does not drive the video DAC
 assign DAC_MUTE = 1'b1;
 assign BEEPER = 1'b0;
@@ -140,6 +124,19 @@ assign FDC_STEP = 1'b0;
 assign FDC_WDATA = 1'b0;
 assign FDC_WGATE = 1'b0;
 assign FDC_SIDE_N = 1'b0;
+
+assign ESP_RESET_N = 1'bz;
+assign ESP_BOOT_N = 1'bz;
+assign MIDI_RESET_N = 1'b1;
+assign UART_RX = 1'bz;
+assign UART_TX = 1'bz;
+assign UART_CTS = 1'bz;
+
+assign FLASH_CS_N = 1'b1;
+assign FLASH_DI = 1'b1;
+assign FLASH_SCK = 1'b0;
+assign FLASH_WP_N = 1'b1;
+assign FLASH_HOLD_N = 1'b1;
 
 assign TAPE_OUT = 1'b0;
 
@@ -167,7 +164,8 @@ kg_pll #(
 	.CLKOUT2_DIVIDE(2), .CLKOUT2_PHASE(180.0),
 	.CLKOUT3_DIVIDE(80),
 	.CLKOUT4_DIVIDE(20),
-	.BUFG_MASK(6'b010001)
+	.CLKOUT5_DIVIDE(54),
+	.BUFG_MASK(6'b110001)
 ) pll (
 	.clk_in(CLK_50MHZ),
 	.rst(1'b0),
@@ -185,6 +183,8 @@ wire areset = ~locked;
 // the pixel clock of the video DAC
 ODDR2 oddr_v_clk (.Q(V_CLK), .C0(clk_65), .C1(~clk_65), .CE(1'b1), .D0(1'b1), .D1(1'b0), .R(1'b0), .S(1'b0));
 
+ODDR2 oddr_midi_clk (.Q(MIDI_CLK), .C0(pll_clk[5]), .C1(~pll_clk[5]), .CE(1'b1), .D0(1'b1), .D1(1'b0), .R(1'b0), .S(1'b0));
+
 // ------------------------------------------------------------------ MCU
 
 wire mcu_sck = MCU_SCK, mcu_sck_ibufg = MCU_SCK;  // not on a clock pin
@@ -196,6 +196,8 @@ assign MCU_SPI_IO[1] = 1'bz;
 wire [7:0] kb_scancode;
 wire kb_scancode_upd;
 wire [12:0] joy_l, joy_r;
+wire [7:0] usb_midi_data;
+wire usb_midi_wr;
 wire [7:0] img_mounted, img_data, img_result, img_wp;
 wire [63:0] img_size;
 wire img_data_wr, img_result_wr, img_q_wr, img_q_ack;
@@ -235,6 +237,7 @@ kg_mcu #(
 	.FILE_WR_EACH(1),
 	.FILE_TO_ROM(0),
 	.ENABLE_FT(1),
+	.ENABLE_MIDI(1),     // MIDI IN of a USB keyboard (CMD_MIDI)
 	.ENABLE_SD2(0)       // the second card belongs to the core: spi.vhd, card 1
 ) mcu (
 	.CLK(clk_32),
@@ -304,6 +307,9 @@ kg_mcu #(
 	.IMG_Q_WR(img_q_wr),
 	.IMG_Q_DI(img_q_di),
 	.IMG_Q_ACK(img_q_ack),
+	.MIDI_DATA(usb_midi_data),
+	.MIDI_WR(usb_midi_wr),
+	.MIDI_LOST(),
 	.PS2_COMMAND(16'h0000),
 	.PS2_COMMAND_WR(1'b0),
 	.UART_RX_DATA(),
@@ -336,7 +342,8 @@ localparam SW_RESET = 4;
 localparam SW_MDV_REV = 5;
 localparam SW_SD2 = 6;
 localparam SW_MDV_FAST = 7;
-localparam SW_N = 8;
+localparam SW_MIDI_THRU = 8;
+localparam SW_N = 9;
 wire [SW_N*8-1:0] sw;
 kg_soft_switches #(.N(SW_N)) soft_switches (
 	.clk(clk_32),
@@ -396,6 +403,8 @@ wire [2:0] vid_r, vid_g, vid_b;
 wire vid_hs, vid_vs, vid_de;
 wire [63:0] kbd_matrix;
 wire [15:0] ql_l, ql_r;
+wire [7:0] midi_rx_data, midi_tx_data;
+wire midi_rx_avail, midi_tx_ready, midi_rd, midi_wr;
 
 ql ql (
 	.clk(clk_32),
@@ -415,6 +424,12 @@ ql ql (
 	.audio_l(ql_l),
 	.audio_r(ql_r),
 	.kbd_matrix(kbd_matrix),
+	.midi_rx_data(midi_rx_data),
+	.midi_rx_avail(midi_rx_avail),
+	.midi_tx_ready(midi_tx_ready),
+	.midi_rd(midi_rd),
+	.midi_tx_data(midi_tx_data),
+	.midi_wr(midi_wr),
 	.ms_x(ms_x),
 	.ms_y(ms_y),
 	.ms_b(ms_b),
@@ -525,6 +540,20 @@ ql_sd_card card (
 	.hd_byte_out_data(card_byte_out)
 );
 
+ql_midi midi (
+	.clk(clk_32),
+	.usb_data(usb_midi_data),
+	.usb_wr(usb_midi_wr),
+	.thru(sw[SW_MIDI_THRU*8]),
+	.rx_data(midi_rx_data),
+	.rx_avail(midi_rx_avail),
+	.cpu_rd(midi_rd),
+	.cpu_data(midi_tx_data),
+	.cpu_wr(midi_wr),
+	.tx_ready(midi_tx_ready),
+	.tx(MIDI_TX)
+);
+
 ql_keyboard keyboard (
 	.clk(clk_32),
 	.reset(reset_r),
@@ -590,11 +619,14 @@ ql_audio audio (
 	.out_r(audio_r)
 );
 
+wire signed [15:0] mix_l = audio_l;
+wire signed [15:0] mix_r = audio_r;
+
 kg_pcm5102 #(.DIV_BITS(2)) dac (
 	.clk(clk_32),
 	.reset(areset),
-	.left(audio_l),
-	.right(audio_r),
+	.left(mix_l),
+	.right(mix_r),
 	.din(DAC_DAT),
 	.bck(DAC_BCK),
 	.lrck(DAC_LRCK)
@@ -603,8 +635,8 @@ kg_pcm5102 #(.DIV_BITS(2)) dac (
 // the level meters of the mcu (dot matrix)
 audio_peaks peaks (
 	.clk(clk_32),
-	.audio_l(audio_l),
-	.audio_r(audio_r),
+	.audio_l(mix_l),
+	.audio_r(mix_r),
 	.cmd_wr(matrix_cmd_wr),
 	.cmd(matrix_cmd)
 );

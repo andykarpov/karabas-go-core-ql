@@ -1,7 +1,7 @@
 {
     "id": "ql",
     "name": "Sinclair QL",
-    "build": "26110907",
+    "build": "26110908",
     "visible": true,
     "type": "osd",
     "order": 18,
@@ -24,6 +24,7 @@
     {"type": "T", "name": "Reset", "hotkey": "F12"},
     {"type": "S", "name": "MDV order", "options": ["Normal", "Reverse"], "default": 0},
     {"type": "S", "name": "SD2 card", "options": ["Off", "On"], "default": 0},
-    {"type": "S", "name": "MDV speed", "options": ["Normal", "Fast"], "default": 1}
+    {"type": "S", "name": "MDV speed", "options": ["Normal", "Fast"], "default": 1},
+    {"type": "S", "name": "MIDI thru", "options": ["Off", "On"], "default": 1}
     ]
 }
