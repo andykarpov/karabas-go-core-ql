@@ -18,7 +18,6 @@ def header(board):
 def common(s, board, doc):
     s = s[:s.index('module karabas_minig_top')] + header(board) + s[s.index(');', s.index('module karabas_minig_top')) + 2:]
     s = sub(s, ' Sinclair QL for Karabas Mini rev.G (HDMI, PCM5102): the machine of ql.v and the board glue.', doc)
-    s = sub(s, '.BURST_MAX_MHZ(32),  // Rev.G has MCU_SCK on a global clock pin', '.BURST_MAX_MHZ(0),   // MCU_SCK is not on a clock pin: bursts at the link clock')
     s = sub(s, 'assign ESP32_SPI_CS_N = 1\'b1;\n', "assign ESP_RESET_N = 1'bz;\nassign ESP_BOOT_N = 1'bz;\nassign MIDI_RESET_N = 1'b1;\n")
     # the SAM2695 has its clock from the FPGA on these boards (650 MHz / 54 = 12.04 MHz)
     s = sub(s, '.CLKOUT4_DIVIDE(20),', '.CLKOUT4_DIVIDE(20),\n\t.CLKOUT5_DIVIDE(54),')
@@ -27,6 +26,8 @@ def common(s, board, doc):
     a = s.index('// synth begin')
     b = s.index('// synth end')
     s = s[:a] + ('assign ADC_CLK = 1\'b0;\nassign ADC_BCK = 1\'bz;\nassign ADC_LRCK = 1\'bz;\n' if board == 'mini' else '') + 'wire signed [15:0] mix_l = audio_l;\nwire signed [15:0] mix_r = audio_r;\n' + s[b + len('// synth end\n'):]
+    s = s.replace('MCU_IO, // [0] burst cs_n, [1] burst ready, [2] sd2 cs_n, [3] ft cs_n', 'MCU_IO, // [1] INT of link v2, [2] sd2 cs_n, [3] ft cs_n')
+    s = s.replace('MCU_SPI_IO, // [0] burst ready (firmware IO1, GPIO2), [1] burst cs_n (IO0, GPIO14)', 'MCU_SPI_IO, // [0] INT of link v2 (firmware IO1, GPIO2), [1] unused (IO0, GPIO14)')
     a = s.index('wire mcu_sck_ibufg, mcu_sck;')
     b = s.index('BUFG bufg_mcu_sck')
     b = s.index('\n', b) + 1
@@ -45,10 +46,9 @@ open('rtl/karabas_mini_top.v', 'w').write(s)
 
 # ------------------------------------------------------------- Go
 s = common(top, 'go', ' Sinclair QL for Karabas Go (VGA through the video DAC, PCM5102): generated from karabas_minig_top.v by tools/gen_tops.py.')
-s = sub(s, "assign MCU_IO[1] = mcu_burst_ready;\nassign MCU_IO[0] = 1'bz;\nassign MCU_IO[5:2] = 4'bzzzz;\n", "assign MCU_SPI_IO[0] = mcu_burst_ready;\nassign MCU_SPI_IO[1] = 1'bz;\n")
+s = sub(s, "assign MCU_IO[1] = mcu_int;\nassign MCU_IO[0] = 1'bz;\nassign MCU_IO[5:2] = 4'bzzzz;\n", "assign MCU_SPI_IO[0] = mcu_int;   // INT of link v2 on N9 (IO1 of the firmware)\nassign MCU_SPI_IO[1] = 1'bz;\n")
 s = sub(s, '.MCU_SPI_FT_SS(MCU_IO[3]),', '.MCU_SPI_FT_SS(MCU_SPI_FT_CS_N),')
 s = sub(s, '.MCU_SPI_SD2_SS(MCU_IO[2]),', '.MCU_SPI_SD2_SS(MCU_SPI_SD2_CS_N),')
-s = sub(s, '.MCU_BURST_CS_N(MCU_IO[0]),', '.MCU_BURST_CS_N(MCU_SPI_IO[1]),')
 s = sub(s, "assign WD = 16'bz;\n", """assign WD = 16'bz;
 assign FT_OE_N = 1'b1;     // the FT812 does not drive the video DAC
 assign DAC_MUTE = 1'b1;
@@ -75,8 +75,8 @@ reg [23:0] vga_rgb = 24'd0;
 reg vga_hs = 1'b1, vga_vs = 1'b1;
 always @(posedge clk_65) begin
 	vga_rgb <= osd_rgb;
-	vga_hs <= vid_hs;
-	vga_vs <= vid_vs;
+	vga_hs <= osd_hs;   // the syncs of the overlay: in step with osd_rgb
+	vga_vs <= osd_vs;
 end
 assign VGA_R = vga_rgb[23:16];
 assign VGA_G = vga_rgb[15:8];

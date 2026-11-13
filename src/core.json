@@ -12,9 +12,9 @@
     {"filename": "roms/qlsde.rom", "address": 49152}
     ],
     "boards": {
-        "go": {"bitstream": "karabas_go.bin"},
-        "mini": {"bitstream": "karabas_mini.bin"},
-        "minig": {"bitstream": "karabas_minig.bin"}
+        "go": {"link": 2, "build": "26111336", "bitstream": "karabas_go.bin"},
+        "mini": {"link": 2, "build": "26111336", "bitstream": "karabas_mini.bin"},
+        "minig": {"link": 2, "build": "26111311", "bitstream": "karabas_minig.bin"}
     },
     "osd": [
     {"type": "FL", "name": "OS ROM", "slot": 0, "extensions": ".rom,.bin", "dir": "/ql", "hotkey": "Menu+F1"},
