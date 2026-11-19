@@ -64,7 +64,7 @@ assign FDC_SIDE_N = 1'b0;
 """)
 s = sub(s, ".BUFG_MASK(6'b011111)", ".BUFG_MASK(6'b110001)")
 s = sub(s, "ODDR2 oddr_ft_clk (.Q(FT_CLK_OUT), .C0(clk_8), .C1(~clk_8), .CE(1'b1), .D0(1'b1), .D1(1'b0), .R(1'b0), .S(1'b0));\n",
-        "// the pixel clock of the video DAC\nODDR2 oddr_v_clk (.Q(V_CLK), .C0(clk_65), .C1(~clk_65), .CE(1'b1), .D0(1'b1), .D1(1'b0), .R(1'b0), .S(1'b0));\n")
+        "// the pixel clock of the VGA DAC, inverted: the DAC takes the pixel on the rising V_CLK, the middle of the pixel\nODDR2 oddr_v_clk (.Q(V_CLK), .C0(clk_65), .C1(~clk_65), .CE(1'b1), .D0(1'b0), .D1(1'b1), .R(1'b0), .S(1'b0));\n")
 s = sub(s, '.lrck(DAC_WS)', '.lrck(DAC_LRCK)')
 a = s.index('// ------------------------------------------------------------------ HDMI')
 b = s.rindex('endmodule')
